@@ -1,7 +1,8 @@
+.Rhistory
 CAZ_SEM1b.html
-StackedTimeWhiskersSplit.svg
-tree_tmp.pdf
-/Data/CAZtree.svg
-/Data/curveplot.svg
-/Data/processing_lines.txt
-/Data/CAZset_mods.txt
+Data/CAZset_mods.txt
+Data/CAZtree.svg
+Data/StackedTimeWhiskersSplit.svg
+Data/curveplot.svg
+Data/processing_lines.txt
+Data/tree_tmp.pdf
