@@ -1,0 +1,687 @@
+---
+title: "CAZyme analysis on SEM1b"
+author: "Francesco Delogu"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+---
+
+# CAZyme dataset
+
+## Loading libraries and setting
+
+```{r Load libraries, results='hide', message=F, warning=F}
+library(tidyverse)
+library(WGCNA)
+library(BiasedUrn)
+library(ggtree)
+library(RColorBrewer)
+library(gridExtra)
+library(DT)
+library(matrixStats)
+library(reshape2)
+
+options(stringsAsFactors = FALSE)
+
+wd <- getwd()
+```
+
+## Load data
+
+```{r Load data}
+
+uniques.not_collapsed <- read.table(paste0(wd, "/Data/not_collapsed.uniques"),
+                                    header=T, row.names=1)
+uniques.collapsed <- read.table(paste0(wd, "/Data/collapsed.uniques"),
+                                header=T, row.names=1)
+
+mus.not_collapsed <- read.table(paste0(wd, "/Data/not_collapsed.mus"),
+                                header=T, row.names=1)
+mus.collapsed <- read.table(paste0(wd, "/Data/collapsed.mus"),
+                            header=T, row.names=1)
+
+caz.db <- read.table(paste0(wd, "/Data/caz_selected.txt"), header=T)
+
+caz.ann <- read.table(paste0(wd, "/Data/caz_selected_ext.txt"), header=T, sep="\t")
+
+```
+
+## Filter functions
+
+```{r Filter functions}
+unique_hits_threshold <- function(mat, x=1){
+  return(matrix((mat>x)+0, ncol=ncol(mat), nrow=nrow(mat), dimnames=list(rownames(mat), colnames(mat))))
+}
+
+samples_threshold <- function(mat, x=1){
+  return(rownames(mat)[which(rowSums(mat)>=x)])
+}
+
+grouping_sequences <- function(mus, uniques, h=0, s=1){
+  rel <- samples_threshold(unique_hits_threshold(uniques, h), s)
+  nohits <- rownames(mus)[which(!rownames(mus)%in%rel)]
+  
+  hits <- samples_threshold(unique_hits_threshold(10**mus))
+  unrel <- hits[which(!hits%in%rel)]
+  noexpr <- nohits[which(!nohits%in%hits)]
+  
+  rel.multi <- rel[grepl("_.*_", rel)]
+  rel.sin <- rel[!rel%in%rel.multi]
+  
+  unrel.multi <- unrel[grepl("_.*_", unrel)]
+  unrel.sin <- unrel[!unrel%in%unrel.multi]
+  
+  noexpr.multi <- noexpr[grepl("_.*_", noexpr)]
+  noexpr.sin <- noexpr[!noexpr%in%noexpr.multi]
+  
+  return(list(rel.sin=rel.sin, rel.multi=rel.multi,
+              unrel.sin=unrel.sin, unrel.multi=unrel.multi,
+              noexpr.sin=noexpr.sin, noexpr.multi=noexpr.multi))
+}
+
+grouping_counts <- function(mus, uniques, h=0, s=1){
+  groups_list <- grouping_sequences(mus, uniques, h=0, s=1)
+  
+  return(matrix(c(length(groups_list$rel.sin), length(groups_list$rel.multi),
+                  length(groups_list$unrel.sin), length(groups_list$unrel.multi),
+                  length(groups_list$noexpr.sin), length(groups_list$noexpr.multi)),
+                ncol=3, dimnames=list(c("singleton", "multi"), c("rel", "no.rel", "no.expr"))))
+}
+
+```
+
+## CAZymes extraction
+
+```{r CAZymes extraction}
+
+not_collapsed.caz <- rownames(mus.not_collapsed)[rownames(mus.not_collapsed)%in%unique(caz.db$ORF)]
+collapsed.caz <- rownames(mus.collapsed)[rownames(mus.collapsed)%in%unique(caz.ann$Gene_group)]
+
+```
+
+## Reliablity matrices
+
+```{r Reliability matrices, results='axis'}
+
+knitr::kable(grouping_counts(mus.not_collapsed, uniques.not_collapsed))
+knitr::kable(grouping_counts(mus.collapsed, uniques.collapsed))
+
+knitr::kable(grouping_counts(mus.not_collapsed[not_collapsed.caz,], uniques.not_collapsed[not_collapsed.caz,]))
+knitr::kable(grouping_counts(mus.collapsed[collapsed.caz,], uniques.collapsed[collapsed.caz,]))
+
+
+```
+
+## Estimation of the ORFs rescue rate
+
+```{r Estimate ORFs rescure rate}
+
+extract.collapsed <- function(not_collapsed, collapsed){
+  selected <- c()
+  for(i in not_collapsed){
+    for(j in collapsed){
+      j <- strsplit(j, ";")[[1]]
+      if(i %in% j){
+       selected <- c(selected, i)
+       break
+      }
+    }
+  }
+  return(unique(selected))
+}
+
+not_collapsed.names <- grouping_sequences(mus.not_collapsed, uniques.not_collapsed)
+collapsed.names <- grouping_sequences(mus.collapsed, uniques.collapsed)
+
+rescued <- extract.collapsed(not_collapsed.names$unrel.sin, collapsed.names$rel.multi)
+still <- extract.collapsed(not_collapsed.names$unrel.sin, collapsed.names$unrel.sin)
+group.not_rel <- extract.collapsed(not_collapsed.names$unrel.sin, collapsed.names$unrel.multi)
+
+```
+
+There are `r length(rescued)` (`r round(length(rescued) / grouping_counts(mus.not_collapsed, uniques.not_collapsed)[1,2] * 100, digits=0)`%) singleton unreliable ORFs that found at least a single hit after the grouping procedure, `r length(still)` (`r round(length(still) / grouping_counts(mus.not_collapsed, uniques.not_collapsed)[1,2] * 100, digits=0)`%) that remained unreliable singletons and `r length(group.not_rel)` (`r round(length(group.not_rel) / grouping_counts(mus.not_collapsed, uniques.not_collapsed)[1,2] * 100, digits=0)`%) that joined unreliable expression groups with multiple ORFs.
+
+## Count CAZyme domains
+
+```{r Count CAZyme domains}
+fam.tab <- caz.db %>%
+  group_by(Genome, Domain) %>%
+  summarise(n=n()) %>%
+  spread(key=Genome, value=n)
+
+fam.tab[is.na(fam.tab)] <- 0
+```
+
+## CAZyme domains table
+
+```{r CAZyme table, results='axis'}
+
+datatable(fam.tab)
+
+```
+
+# RNAseq expression data
+
+## Import spike-in counts
+
+```{r spike in}
+
+file_names <- dir(paste0(wd, "/Data/SpikeIn_counts"))
+p <- lapply(paste0(wd, "/Data/SpikeIn_counts/", file_names), function(y) read.table(y, sep="\t", header = FALSE, col.names = c("transcript", y)))
+df_is <-Reduce(function(x, y) merge(x, y, by = "transcript", all=TRUE), p)
+rownames(df_is)<-df_is$transcript
+df_is <- df_is[,2:22]
+colnames(df_is) <- colnames(mus.collapsed)[1:21]
+
+```
+
+## Normalization
+
+```{r Normalization}
+
+Tr <- exp(as.matrix(mus.collapsed))
+Ir <- as.numeric(df_is)
+Im <- 6.228*10**9
+
+Sr <- colSums(Tr)
+Sm <- Sr*(Im/Ir)
+
+Tm <- log((Tr)%*%(diag(Sm/Sr)))
+colnames(Tm) <- colnames(mus.collapsed)
+
+write.table(Tm, file=paste0(wd, "/Data/collapsed_norm.mus"), sep="\t", quote=FALSE, row.names=T, col.names=T)
+
+```
+
+Retrieved quantities:
+
+* Reads mapping on the spike-in: average `r formatC(mean(Ir), format="e", digits=1)`, standar deviation `r formatC(sd(Ir), format="e", digits=1)`;
+
+* Reads per sample: average `r formatC(mean(Sr), format="e", digits=1)`, standar deviation `r formatC(sd(Sr), format="e", digits=1)`;
+
+* Transcript molecules per sample: average `r formatC(mean(Sm), format="e", digits=1)`, standar deviation `r formatC(sd(Sm), format="e", digits=1)`
+
+
+## Extract reliable CAZyme expression dataset 
+
+```{r Extracd CAZset}
+
+datCAZ <- t(Tm[samples_threshold(unique_hits_threshold(uniques.collapsed[collapsed.caz,], 0), 1),])
+
+```
+
+# Data Exploration
+
+## Sample clustering
+
+```{r Sample clustering}
+
+datCAZ.dist <- dist(datCAZ, method="euclidean")
+datCAZ.hc <- hclust(datCAZ.dist, method="complete")
+plot(datCAZ.hc)
+
+```
+
+## PCA
+
+```{r PCA}
+
+datCAZ.pca <- prcomp(datCAZ, scale.=T)
+pca.df <- as.data.frame(datCAZ.pca$x[,1:3])
+
+pc.plot1 <- ggplot(data.frame(sdev=datCAZ.pca$sdev/sum(datCAZ.pca$sdev)), aes(y=sdev, x=(1:length(sdev)))) + geom_point() + labs(x="Principal Component", y="Variance Explained (%)", title="Variance Explained") + theme_classic()
+pc.plot2 <- pca.df %>% ggplot(aes(x=PC2, y=PC1, label=rownames(.))) + geom_text() + labs(x="PC2", y="PC1", title="PC1 vs PC2") + theme_classic()
+pc.plot3 <- pca.df %>% ggplot(aes(x=PC1, y=PC3, label=rownames(.))) + geom_text() + labs(x="PC1", y="PC3", title="PC1 vs PC3") + theme_classic()
+pc.plot4 <- pca.df %>% ggplot(aes(x=PC2, y=PC3, label=rownames(.))) + geom_text() + labs(x="PC2", y="PC3", title="PC2 vs PC3") + theme_classic()
+
+grid.arrange(pc.plot1, pc.plot2, pc.plot3, pc.plot4)
+
+```
+
+## Heatmap
+
+```{r heatmap}
+
+heatmap(scale(as.matrix(datCAZ), center=T, scale=T), scale='none', Rowv=NA)
+
+```
+
+## Scaling and removal of outliers
+
+```{r scaling}
+
+datCAZ.scal <- scale(datCAZ[-18,], center = TRUE, scale = TRUE)
+
+```
+
+# Expression cluster analysis
+
+## Gene clustering
+
+```{r Gene clustering}
+
+datCAZ.dist2 <- dist(t(datCAZ.scal), method = "euclidean")
+datCAZ.hc2 <- hclust(datCAZ.dist2)
+class <- dynamicTreeCut::cutreeDynamic(datCAZ.hc2, minClusterSize=7, method='hybrid',
+                                       distM=as.matrix(datCAZ.dist2), deepSplit=1, verbose=0)
+dynamicColors <- labels2colors(class)
+plotDendroAndColors(datCAZ.hc2, dynamicColors, dendroLabels=F)
+
+```
+
+## Checking the eigengenes
+
+```{r Checking eigengenes}
+
+MEList = moduleEigengenes(datCAZ.scal, colors = dynamicColors)
+MEs = MEList$eigengenes
+MEDiss = 1-cor(MEs);
+METree = hclust(as.dist(MEDiss), method = "average");
+plot(METree, main = "Clustering of module eigengenes", xlab = "", sub = "")
+
+MEDissThres = 0.10
+abline(h=MEDissThres, col = "red")
+
+```
+
+## Merging the modules
+
+```{r Merging modules}
+
+merge = mergeCloseModules(datCAZ.scal, dynamicColors, cutHeight=MEDissThres, verbose=0)
+mergedColors = merge$colors
+mergedMEs = merge$newMEs
+
+plotDendroAndColors(datCAZ.hc2, cbind(dynamicColors, mergedColors), c("Dynamic Tree Cut", "Merged dynamic"), dendroLabels=F,
+                    hang=0.03, addGuide=T, guideHang=0.05)
+
+```
+
+## Circular tree
+
+```{r Circular tree}
+
+ME2Roman <- c("I", "II", "III", "IV", "V", "VI")
+names(ME2Roman) <- unique(mergedColors)
+caz.mod <- ME2Roman[mergedColors]
+names(caz.mod) <- colnames(datCAZ.scal)
+
+cls <- list(I=names(caz.mod)[which(caz.mod=="I")], II=names(caz.mod)[which(caz.mod=="II")],
+            III=names(caz.mod)[which(caz.mod=="III")], IV=names(caz.mod)[which(caz.mod=="IV")],
+            V=names(caz.mod)[which(caz.mod=="V")], VI=names(caz.mod)[which(caz.mod=="VI")])
+
+tree <- groupOTU(as.phylo(datCAZ.hc2), cls)
+colcode <- brewer.pal(n = 6, name = "Dark2")
+names(colcode) <- c("I", "II", "III", "IV", "V", "VI")
+
+treetmp <- ggtree(tree, layout="circular") + aes(color=group) +
+  theme(plot.margin=unit(c(-12,-12,-12,-12), "mm"), text=element_text(family="Helvetica")) +
+  geom_text2(aes(subset=!isTip, label=node), hjust=-.3) +
+  geom_tiplab2() +
+  scale_color_manual(values=c("black", colcode))
+
+treetmp
+
+ggsave(filename=paste0(wd, "/Data/tree_tmp.pdf"), treetmp, height=20, width=20)
+
+```
+
+## Export clustering reuslts
+
+```{r Export clusters}
+
+ME2Roman <- c("I", "II", "III", "IV", "V", "VI")
+names(ME2Roman) <- c("cyan", "tan", "salmon", "greenyellow", "brown", "blue")
+caz.mod <- ME2Roman[mergedColors]
+names(caz.mod) <- colnames(datCAZ.scal)
+caz.df <- cbind(caz.ann, caz.mod[caz.ann[,1]])
+colnames(caz.df) <- c("Gene_group", "CAZ_Domain", "CAZ_group",  "Genome", "Expr_module")
+caz.df <- caz.df %>% filter(!Expr_module=="NA")
+
+write.table(caz.df, file=paste0(wd, "/Data/CAZset_mods.txt"), sep="\t", quote=F, row.names=F, col.names=T)
+
+```
+
+## Fixing tree annotation
+
+```{r Fixing annotation}
+
+treeplot <- ggtree(tree, layout="circular") +
+  theme(plot.margin=unit(c(-12,-12,-12,-12), "mm"), text=element_text(family="Helvetica")) +
+  geom_strip("Ga0196617_1005697", "Ga0196617_100010202", offset=0.25, barsize=3, color=colcode["I"]) +
+  geom_cladelabel(node=387, label="I", offset=0.25, barsize=0, offset.text=0.3, color=colcode["I"]) +
+  geom_cladelabel(node=334, label="II", offset=0.25, barsize=3, offset.text=0.3, color=colcode["II"]) +
+  geom_cladelabel(node=335, label="I", offset=0.25, barsize=3, offset.text=0.3, color=colcode["I"]) +
+  geom_cladelabel(node=286, label="III", offset=0.25, barsize=3, offset.text=0.3, color=colcode["III"]) +
+  geom_cladelabel(node=289, label="IV", offset=0.25, barsize=3, offset.text=0.3, color=colcode["IV"]) +
+  geom_cladelabel(node=293, label="III", offset=0.25, barsize=3, offset.text=0.3, color=colcode["III"]) +
+  geom_cladelabel(node=298, label="V", offset=0.25, barsize=3, offset.text=0.3, color=colcode["V"]) +
+  geom_cladelabel(node=299, label="VI", offset=0.25, barsize=3, offset.text=0.3, color=colcode["VI"])
+
+treeplot
+
+ggsave(filename=paste0(wd, "/Data/CAZtree.svg"), treeplot, dpi=300, height=7, width=7)
+
+```
+
+## MAGs/strain enrichment analysis of the modules 
+
+```{r MAGs/strains enrichment}
+
+caz.expr <- caz.df
+Genomes <- caz.expr$Genome
+names(Genomes) <- caz.expr$Gene_group
+Genomes <- Genomes[unique(names(Genomes))]
+
+arrk <- sort(unique(caz.df$Expr_module))
+bins <- table(Genomes[colnames(datCAZ.scal)])
+
+pvals = rep(0, length(bins))
+obs <- matrix(rep(0,length(bins)*length(arrk)), ncol=length(bins))
+colnames(obs) <- names(bins)
+rownames(obs) <- arrk
+
+bin_conversion <- list(G_S2=c("SW3C", "COPR1"), G_U2=c("Unbinned", "COPR1"), G_US=c("Unbinned", "SW3C"),
+                       G_BS=c("SW3C", "BWF2A"), G_UBS=c("SW3C", "BWF2A", "Unbinned"), G_UB=c("Unbinned", "BWF2A"))
+
+for (i in (1:length(arrk))){
+  
+  which.color=arrk[i];
+  sub_genes <- colnames(datCAZ.scal)[which(caz.mod==which.color)]
+  sub_tax <- Genomes[sub_genes]
+  tab_tax <- table(sub_tax)
+  mod_counts <- tab_tax[names(bins)]
+  names(mod_counts) <- names(bins)
+  mod_counts[is.na(mod_counts)]=0
+  
+  scores <- rbind(mod_counts, mod_counts)
+  rownames(scores) <- c("depleted", "enriched")
+  
+  full_bins <- c("RCLO1", "COPR3", "COPR1", "TISS1", "CLOS1", "BWF2A", "SW3C" ) # Check to add "COPR2"
+  aggregate_bins <- c("G_S2", "G_U2", "G_BS", "G_UBS", "G_UB", "G_US")
+  for (j in (full_bins)){
+    
+    x <- mod_counts[names(mod_counts)==j]
+    X <- bins[names(bins)==j]
+    Y <- sum(bins[names(bins)!=j])
+    tot <- sum(mod_counts)
+    
+    ################ Multilabel adjustment
+    aggmod_counts <- mod_counts[aggregate_bins]
+    names(aggmod_counts) <- aggregate_bins
+    aggmod_counts[is.na(aggmod_counts)]=0
+    aggbins_counts <- bins[aggregate_bins]
+    names(aggbins_counts) <- aggregate_bins
+    aggbins_counts[is.na(aggbins_counts)]=0
+    for (j1 in names(aggmod_counts)){
+      if (toString(j) %in% unlist(bin_conversion[toString(j1)])){
+        x <- x + aggmod_counts[j1]
+        X <- X + aggbins_counts[j1]
+        Y <- Y - aggbins_counts[j1]
+      }
+    }
+    
+    obs[i, j] <- x
+    ###############
+    
+    scores[1,j]<-phyper(x, X, Y, tot, lower.tail = TRUE)
+    scores[2,j]<-phyper(x, X, Y, tot, lower.tail = FALSE)
+  }
+  pvals = rbind(pvals, scores[2,])
+}
+
+pvals = pvals[-1,]
+rownames(pvals) <- arrk
+
+pvals_melted <- reshape2::melt(pvals)
+colnames(pvals_melted) <- c("Module", "Bin", "Pvalue")
+obs_melted <- reshape2::melt(obs)
+colnames(obs_melted) <- c("Module", "Bin", "Obs")
+
+pval_obs <- cbind(pvals_melted, obs_melted$Obs)
+colnames(pval_obs) <- c("Module", "Bin", "Pvalue", "Obs")
+pval_arr <- pval_obs %>% filter(Obs > 0)
+
+adj_p <- p.adjust(pval_arr$Pvalue, method = "BH")
+pval_arr <- cbind(pval_arr, adj_p)
+
+pvals_mat <- pval_arr %>% select(Module, Bin, adj_p) %>% spread(key=Bin, value=as.numeric(adj_p), fill=1)
+rownames(pvals_mat) <- pvals_mat$Module
+pvals_mat <- pvals_mat[,-1]
+
+pval_th <- 0.05
+pvals_binary <- ifelse(pvals_mat<pval_th, 1, 0)
+corrplot::corrplot(pvals_binary[,full_bins])
+```
+
+## Curve plot
+
+```{r Curve plot}
+
+bin2symbol <- c(17, 2, 6, 1, 15, 0, 5, 16)
+names(bin2symbol) <- c("COPR1", "BWF2A", "SW3C", "CLOS1", "TISS1", "COPR3", "COPR2", "RCLO1")
+
+tmp=c()
+for(i in rowSums(pvals_binary)){tmp <- c(tmp, paste0("t", as.character(rev((1:8))[1:i])))}
+
+accepted <- pval_arr %>% filter(adj_p<pval_th)
+accepted <- accepted[order(accepted$Module),]
+
+enrichment_annotation <- data.frame(
+  Time = tmp,
+  Quant50 = rep(1.5, length(tmp)),
+  Module = accepted$Module,
+  lab = bin2symbol[as.character(accepted$Bin)],
+  label = accepted$Bin)
+enrichment_annotation <- enrichment_annotation[order(enrichment_annotation$lab), ]
+
+enrichment_annotation$lab <- as.integer(enrichment_annotation$lab)
+
+curveplot <- as.data.frame(datCAZ.scal) %>%
+  mutate(Sample=rownames(.)) %>%
+  separate(Sample, into=c("Time", "Replicate"), sep=c(2, 3)) %>%
+  gather(key="ORF", value="Expression", -c(Time, Replicate)) %>%
+  mutate(Module=caz.mod[ORF]) %>%
+  filter(Module!="NA") %>%
+  group_by(Module, Time) %>% 
+  mutate(Expression = as.numeric(Expression)) %>%
+  summarise(Quant25 = quantile(Expression, c(0.25), na.rm=T),
+            Quant50 = quantile(Expression, c(0.50), na.rm=T),
+            Quant75 = quantile(Expression, c(0.75), na.rm=T)) %>%
+  ggplot(aes(x=as.factor(Time), y=Quant50, group=1, col=colcode[Module])) +
+  geom_line() +
+  geom_ribbon(aes(ymax=Quant75, ymin=Quant25, fill=colcode[Module]), alpha=0.3, colour="NA") +
+  facet_wrap(~Module, scales = "fixed") +
+  guides(fill=F, colour=F) +
+  labs(x="Time point", y="Expression (standardized)") +
+  geom_point(data=enrichment_annotation, size=2, aes(shape = factor(lab)), color="black", na.rm = T, show.legend = T) +
+  scale_shape_manual(values=unique(enrichment_annotation$lab), name="Organism", 
+                     labels=unique(enrichment_annotation$label)) +
+  scale_color_identity() + scale_fill_identity() +
+  theme_classic() +
+  theme(strip.background = element_blank(), legend.key.size=unit(2, "char"), text=element_text(family="Helvetica"))
+
+curveplot
+
+ggsave(filename=paste0(wd, "/Data/curveplot.svg"), curveplot, dpi=300, height=8, width=12)
+
+```
+
+# Metadata
+
+## Load metadata
+
+```{r Load metadata}
+
+d <- read.table(paste0(wd, "/Data/16Stimeseries_raw.txt"), sep = "\t", header = TRUE, row.names = 25)
+d_norm <- as.data.frame(t(t(d)/colSums(d)))
+otu_colors <- c("brown1", "brown2", "brown3", "burlywood", "chartreuse1", "chartreuse2", "chartreuse3", "chartreuse4", "chocolate3", "cyan1", "cyan2", "darkgoldenrod1", "darkgoldenrod2")
+corr_factors <- c(4, 4, 4, 9.17, 2, 2, 2, 2, 2, 2, 2, 8.58, 8.58)
+d_corr <- d[sort(rownames(d)),]/corr_factors
+d_corr_norm <- as.data.frame(t(t(d_corr)/colSums(d_corr)))
+d_corr_norm <- d_corr_norm*100
+
+cell <- read.table(paste0(wd, "/Data/CelluloseDegratation.txt"), sep = "\t", header = TRUE)
+
+prot <- read.table(paste0(wd, "/Data/ProteinConcentration.txt"), sep = "\t", header = TRUE)
+
+monosacch <- read.table(paste0(wd, "/Data/Sacch_table.txt"), sep = "\t", header = TRUE)
+
+```
+
+## Summarizing functions
+
+```{r Summarizing functions}
+
+time_avrg <- function(code, v){
+  u <- unique(code)
+  x <- rep(0, length(u))
+  names(x) <- u
+  for(i in u){
+    x[i] <- mean(v[which(code==i)])
+  }
+  return(x)
+}
+
+time_mat <- function(code, m){
+  u <- unique(code)
+  n <- matrix(ncol=ncol(m), nrow=length(u))
+  for(i in 1:ncol(m)){
+    n[,i] <- time_avrg(code, m[,i])
+  }
+  return(n)
+}
+
+time_min <- function(code, v){
+  u <- unique(code)
+  x <- rep(0, length(u))
+  names(x) <- u
+  for(i in u){
+    x[i] <- min(v[which(code==i)])
+  }
+  return(x)
+}
+
+min_mat <- function(code, m){
+  u <- unique(code)
+  n <- matrix(ncol=ncol(m), nrow=length(u))
+  for(i in 1:ncol(m)){
+    n[,i] <- time_min(code, m[,i])
+  }
+  return(n)
+}
+
+time_max <- function(code, v){
+  u <- unique(code)
+  x <- rep(0, length(u))
+  names(x) <- u
+  for(i in u){
+    x[i] <- max(v[which(code==i)])
+  }
+  return(x)
+}
+
+max_mat <- function(code, m){
+  u <- unique(code)
+  n <- matrix(ncol=ncol(m), nrow=length(u))
+  for(i in 1:ncol(m)){
+    n[,i] <- time_max(code, m[,i])
+  }
+  return(n)
+}
+
+```
+
+## Combining dataframes and plotting
+
+```{r Combining datadframes, warning=F}
+
+dd <- data.frame(rbind(rep(NA, length(rownames(d_corr_norm))), time_mat(cell$Time[4:length(cell$Time)], t(d_corr_norm))),
+                c(NA,time_avrg(prot$Time, prot$Concentration)), cbind(time_avrg(cell$Time, cell$Consumed)),
+                time_mat(monosacch$Time, monosacch[,3:7]), unique(cell$Time))
+
+ddmin <- data.frame(rbind(rep(NA, length(rownames(d_corr_norm))), min_mat(cell$Time[4:length(cell$Time)], t(d_corr_norm))),
+                 c(NA,time_min(prot$Time, prot$Concentration)), cbind(time_min(cell$Time, cell$Consumed)),
+                 min_mat(monosacch$Time, monosacch[,3:7]), unique(cell$Time))
+
+ddmax <- data.frame(rbind(rep(NA, length(rownames(d_corr_norm))), max_mat(cell$Time[4:length(cell$Time)], t(d_corr_norm))),
+                 c(NA,time_max(prot$Time, prot$Concentration)), cbind(time_max(cell$Time, cell$Consumed)),
+                 max_mat(monosacch$Time, monosacch[,3:7]), unique(cell$Time))
+
+names_to_plot <- c("C.thermocellum 1", "C.thermocellum 2", "C.thermocellum 3", "Clostridium ps.", "C.protelyticus 1",
+                   "C.protelyticus 2", "C.protelyticus 3", "C.protelyticus 4", "M.Thermautotrophicus",
+                   "T.acetatoxydans 1", "T.acetatoxydans 2", "T.xylanilyticum 1", "T.xylanilyticum 2", "Protein concentration",
+                   "Cellulose degradation", colnames(monosacch[3:7]), "Time")
+
+to_facet <- c(rep("1", nrow(d_corr_norm)), "2", "3", rep("4", 5))
+
+colnames(dd) <- names_to_plot 
+rownames(dd) <- unique(cell$Time)
+colnames(ddmin) <- names_to_plot 
+rownames(ddmin) <- unique(cell$Time)
+colnames(ddmax) <- names_to_plot 
+rownames(ddmax) <- unique(cell$Time)
+
+dd[1,"Cellulose degradation"] <- 0
+dd[,"Cellulose degradation"] <- 100-dd[,"Cellulose degradation"]
+ddmin[1,"Cellulose degradation"] <- 0
+ddmin[,"Cellulose degradation"] <- 100-ddmin[,"Cellulose degradation"]
+ddmax[1,"Cellulose degradation"] <- 0
+ddmax[,"Cellulose degradation"] <- 100-ddmax[,"Cellulose degradation"]
+
+mdata <- cbind(melt(dd, id=c("Time")), sort(rep(to_facet, 9)))
+colnames(mdata) <- c("Time", "variable", "value", "block")
+mdatamin <- cbind(melt(ddmin, id=c("Time")), sort(rep(to_facet, 9)))
+colnames(mdatamin) <- c("Time", "variable", "MinVal", "block")
+mdatamax <- cbind(melt(ddmax, id=c("Time")), sort(rep(to_facet, 9)))
+colnames(mdatamax) <- c("Time", "variable", "MaxVal", "block")
+
+mdata <- as.data.frame(cbind(mdata, mdatamin$MinVal, mdatamax$MaxVal))
+colnames(mdata) <- c("Time", "variable", "value", "block", "minval", "maxval")
+
+face_names <- list("1"="16S abundance (%)", "2"="Protein production (g/l)", "3"="Remaining cellulose(%)", "4"="Monosaccharides (g/l)")
+face_names_split <- list("0"="16S abundance I (%)", "1"="16S abundance II (%)", "2"="Protein production (g/l)",
+                         "3"="Remaining cellulose(%)", "4"="Monosaccharides (g/l)")
+
+
+face_labeller <- function(variable,value){
+  return(face_names[value])
+}
+face_labeller_split <- function(variable,value){
+  return(face_names_split[value])
+}
+
+new_colors <- c("brown1", "brown2", "brown3", "burlywood", "chartreuse1", "chartreuse2", "chartreuse3",
+                "chartreuse4", "chocolate3", "cyan1", "cyan2", "darkgoldenrod1", "darkgoldenrod2",
+                "indianred4",
+                "khaki4",
+                "olivedrab4", "orange", "mediumturquoise", "darkcyan", "deeppink4")
+names(new_colors) <- unique(mdata$variable)
+
+mdata_split <- mdata
+mdata_split$block <- as.numeric(mdata_split$block)
+mdata_split$block[which(mdata_split$variable=="C.thermocellum 1" | mdata_split$variable=="C.protelyticus 1")] <- 0
+mdata_split$block <- as.factor(mdata_split$block)
+
+plt <- ggplot(mdata_split, aes(x=Time, y=value, group=variable, color=variable)) +
+  geom_line(na.rm = TRUE) +
+  geom_errorbar(aes(ymin=minval, ymax=maxval), width=.1) +
+  scale_color_manual(values=new_colors[mdata_split$variable]) + 
+  facet_grid(block~., scales = "free", labeller=face_labeller_split) +
+  labs(x = "Time", y = NULL, color = NULL) +
+  scale_x_discrete(unique(cell$Time), expand=c(0,0)) +
+  theme_classic() +
+  labs(x="Time point", y="Amount", title="Metadata over time")
+
+plt
+
+ggsave(file=paste0(wd, "/Data/StackedTimeWhiskersSplit.svg"), plot=plt, width=10, height=8, dpi=300)
+
+dd2 <- cbind(t(d_corr_norm), cell, prot, monosacch)
+
+```
+
+
