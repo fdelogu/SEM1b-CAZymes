@@ -23,6 +23,8 @@ library(gridExtra)
 library(DT)
 library(matrixStats)
 library(reshape2)
+library(ape)
+library(corrplot)
 
 options(stringsAsFactors = FALSE)
 
@@ -529,7 +531,6 @@ cell <- read.table(paste0(wd, "/Data/CelluloseDegratation.txt"), sep = "\t", hea
 prot <- read.table(paste0(wd, "/Data/ProteinConcentration.txt"), sep = "\t", header = TRUE)
 
 monosacch <- read.table(paste0(wd, "/Data/Sacch_table.txt"), sep = "\t", header = TRUE)
-
 ```
 
 ## Summarizing functions
@@ -679,8 +680,6 @@ plt <- ggplot(mdata_split, aes(x=Time, y=value, group=variable, color=variable))
 plt
 
 ggsave(file=paste0(wd, "/Data/StackedTimeWhiskersSplit.svg"), plot=plt, width=10, height=8, dpi=300)
-
-dd2 <- cbind(t(d_corr_norm), cell, prot, monosacch)
 
 ```
 
