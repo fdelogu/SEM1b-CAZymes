@@ -19,4 +19,4 @@ This repo reproduces the computational analysis presented in the paper "From pro
 - Data\SpikeIn_counts\: RNA spike-in counts
 
 ## Notes
-The code may be subject to small changes while transitioning in a more "tidy" style. Please be sure to install the required R and python libraries and to have an updated version of Rstudio (>=1.2.830).
+The code may be subject to small changes while transitioning to a more "tidy" style. Please be sure to install the required R and python libraries and to have an updated version of Rstudio (>=1.2.830).
