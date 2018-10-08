@@ -5,7 +5,7 @@ This repo reproduces the computational analysis presented in the paper "From pro
 ## File structure
 
 - CAZ_SEM1b.Rmd: Notebook to reproduce the analysis
-- CAZ_SEM1b.html: Knitted version of the notebook, pictures and results are already generated
+- results\CAZ_SEM1b.html: Knitted version of the notebook, pictures and results are already generated
 - Data\16Stimeseries_raw.txt: 16S amplicon read counts
 - Data\CelluloseDegratation.txt: Cellulose utilization
 - Data\ProteinConcentration.txt: Protein concentration
@@ -19,4 +19,4 @@ This repo reproduces the computational analysis presented in the paper "From pro
 - Data\SpikeIn_counts\: RNA spike-in counts
 
 ## Notes
-The code may be subject to small changes while transitioning to a more "tidy" style. Please be sure to install the required R and python libraries and to have an updated version of Rstudio (>=1.2.830).
+Please be sure to install the required R and python libraries and to have an updated version of Rstudio (>=1.2.830).
