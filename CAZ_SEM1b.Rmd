@@ -685,5 +685,3 @@ plt
 #ggsave(file=paste0(wd, "/Data/StackedTimeWhiskersSplit.svg"), plot=plt, width=10, height=8, dpi=300)
 
 ```
-
-
