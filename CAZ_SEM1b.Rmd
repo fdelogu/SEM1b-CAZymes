@@ -1,7 +1,7 @@
 ---
 title: "CAZyme analysis on SEM1b"
 author: "Francesco Delogu"
-date: '`r format(Sys.time(), "%d %B, %Y")`'
+date: "7/10/2018"
 output:
   html_document:
     toc: true
@@ -14,6 +14,11 @@ output:
 ## Loading libraries and setting
 
 ```{r Load libraries, results='hide', message=F, warning=F}
+
+options(stringsAsFactors = FALSE)
+
+wd <- getwd()
+
 library(tidyverse)
 library(WGCNA)
 library(BiasedUrn)
@@ -23,10 +28,8 @@ library(gridExtra)
 library(DT)
 library(matrixStats)
 library(reshape2)
+library(ape)
 
-options(stringsAsFactors = FALSE)
-
-wd <- getwd()
 ```
 
 ## Load data
@@ -133,6 +136,7 @@ extract.collapsed <- function(not_collapsed, collapsed){
   return(unique(selected))
 }
 
+
 not_collapsed.names <- grouping_sequences(mus.not_collapsed, uniques.not_collapsed)
 collapsed.names <- grouping_sequences(mus.collapsed, uniques.collapsed)
 
@@ -182,8 +186,8 @@ colnames(df_is) <- colnames(mus.collapsed)[1:21]
 
 ```{r Normalization}
 
-Tr <- exp(as.matrix(mus.collapsed))
-Ir <- as.numeric(df_is)
+Tr <- exp(as.matrix(mus.collapsed))*10
+Ir <- as.numeric(df_is)*5.08
 Im <- 6.228*10**9
 
 Sr <- colSums(Tr)
@@ -232,7 +236,7 @@ plot(datCAZ.hc)
 datCAZ.pca <- prcomp(datCAZ, scale.=T)
 pca.df <- as.data.frame(datCAZ.pca$x[,1:3])
 
-pc.plot1 <- ggplot(data.frame(sdev=datCAZ.pca$sdev/sum(datCAZ.pca$sdev)), aes(y=sdev, x=(1:length(sdev)))) + geom_point() + labs(x="Principal Component", y="Variance Explained (%)", title="Variance Explained") + theme_classic()
+pc.plot1 <- ggplot(data.frame(sdev=datCAZ.pca$sdev/sum(datCAZ.pca$sdev)*100), aes(y=sdev, x=(1:length(sdev)))) + geom_point() + labs(x="Principal Component", y="Variance Explained (%)", title="Variance Explained") + theme_classic()
 pc.plot2 <- pca.df %>% ggplot(aes(x=PC2, y=PC1, label=rownames(.))) + geom_text() + labs(x="PC2", y="PC1", title="PC1 vs PC2") + theme_classic()
 pc.plot3 <- pca.df %>% ggplot(aes(x=PC1, y=PC3, label=rownames(.))) + geom_text() + labs(x="PC1", y="PC3", title="PC1 vs PC3") + theme_classic()
 pc.plot4 <- pca.df %>% ggplot(aes(x=PC2, y=PC3, label=rownames(.))) + geom_text() + labs(x="PC2", y="PC3", title="PC2 vs PC3") + theme_classic()
@@ -363,7 +367,7 @@ treeplot <- ggtree(tree, layout="circular") +
 
 treeplot
 
-ggsave(filename=paste0(wd, "/Data/CAZtree.svg"), treeplot, dpi=300, height=7, width=7)
+#ggsave(filename=paste0(wd, "/Data/CAZtree.svg"), treeplot, dpi=300, height=7, width=7)
 
 ```
 
@@ -506,7 +510,7 @@ curveplot <- as.data.frame(datCAZ.scal) %>%
 
 curveplot
 
-ggsave(filename=paste0(wd, "/Data/curveplot.svg"), curveplot, dpi=300, height=8, width=12)
+#ggsave(filename=paste0(wd, "/Data/curveplot.svg"), curveplot, dpi=300, height=8, width=12)
 
 ```
 
@@ -678,9 +682,7 @@ plt <- ggplot(mdata_split, aes(x=Time, y=value, group=variable, color=variable))
 
 plt
 
-ggsave(file=paste0(wd, "/Data/StackedTimeWhiskersSplit.svg"), plot=plt, width=10, height=8, dpi=300)
-
-dd2 <- cbind(t(d_corr_norm), cell, prot, monosacch)
+#ggsave(file=paste0(wd, "/Data/StackedTimeWhiskersSplit.svg"), plot=plt, width=10, height=8, dpi=300)
 
 ```
 
